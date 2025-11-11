@@ -1,0 +1,84 @@
+# serializer version: 1
+# name: test_list_stations_snapshot
+  '''
+  📡 Available Weather Stations (3 total reports)
+  ==================================================
+  
+  🛩️ ICAO Codes (3 stations):
+     1. VIDP    2. VOBG    3. VOTP 
+  
+  🏢 IATA Codes (3 stations):
+     1. BLR    2. DEL    3. TIR 
+  
+  '''
+# ---
+# name: test_raw_query_snapshot
+  '''
+  🔍 Raw MongoDB Query Results (1 documents found):
+  Query: {"stationICAO": "VOBG"}
+  ============================================================
+  
+  --- Result 1 ---
+  🛩️ Station: VOBG (BLR)
+   Last Updated: Unknown
+   Raw METAR: VOBG 100700Z 27015KT 3000 TSRA SCT030 26/23 Q1004
+  
+   Weather Conditions:
+   Temperature: 26
+   Dewpoint: 23
+   Wind: 15 from 270
+   Visibility: 3000
+   Pressure: 1004
+   Clouds: SCT030
+   Weather: TSRA
+  
+  
+  '''
+# ---
+# name: test_search_output_snapshot
+  '''
+  🔍 METAR Search Results (1 documents found):
+  Filters: station_icao: VOTP, _: <FakeMongoClient>, result: 🔍 METAR Search Results (1 documents found):
+  
+  ================================================================================
+  
+  --- Result 1 ---
+  🛩️ Station: VOTP (TIR)
+   Last Updated: 2025-11-10 09:55:00
+   Raw METAR: VOTP 101000Z 09008KT 6000 FEW020 30/22 Q1008 NOSIG
+  
+   Weather Conditions:
+   Temperature: 30
+   Dewpoint: 22
+   Wind: 8 from 090
+   Visibility: 6000
+   Pressure: 1008
+   Clouds: FEW020
+  
+  📊 TAF: TAF VOTP 101000Z ...
+  
+  
+  '''
+# ---
+# name: test_statistics_snapshot
+  '''
+  📊 METAR Database Statistics
+  ========================================
+  
+  📈 Document Counts:
+   METAR Reports: 3
+  
+  🛩️ Station Information:
+   Unique ICAO Codes: 3
+   Unique IATA Codes: 3
+  
+  📅 Data Range:
+   Earliest: 2025-11-09 10:00:00
+   Latest: 2025-11-10 09:55:00
+  
+  ✅ Availability:
+   Reports with METAR: 2 (66.7%)
+   Reports with TAF: 1 (33.3%)
+  
+  '''
+# ---

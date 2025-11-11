@@ -1,6 +1,6 @@
 # tests/test_regression_outputs.py
-import pytest
 import app.metar_mcp_server as srv
+import pytest
 
 pytestmark = pytest.mark.asyncio
 

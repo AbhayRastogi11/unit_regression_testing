@@ -1,0 +1,11 @@
+[tool.ruff]
+line-length = 160           # <- 100 se 160 karo
+target-version = "py313"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E402"]           # tests/conftest import-order ke liye
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402", "F401", "F811", "E501"]  # tests me long lines allow

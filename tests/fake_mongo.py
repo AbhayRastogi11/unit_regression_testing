@@ -2,6 +2,7 @@
 import re
 from datetime import datetime
 
+
 class FakeCursor:
     def __init__(self, docs):
         self._docs = docs
@@ -80,6 +81,9 @@ def _match_field(value, cond):
             if k == "$regex":
                 if not _matches_regex(value, v, cond.get("$options")):
                     return False
+            elif k == "$options":
+                # ignore options key; handled within $regex
+                continue
             elif k in ("$gte", "$lte"):
                 if not _compare(k, value, v):
                     return False
@@ -89,6 +93,7 @@ def _match_field(value, cond):
         return True
     else:
         return value == cond
+
 
 def _filter_docs(docs, query):
     def match(doc, q):
@@ -112,4 +117,5 @@ class FakeDB:
         return fc
 
 class FakeMongoClient:
-    pass
+    def __repr__(self):
+        return "<FakeMongoClient>"
