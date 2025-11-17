@@ -2,16 +2,10 @@ import { useState, useEffect } from 'react';
 import { Menu, Plus, MessageSquare, X } from 'lucide-react';
 import ChatPage from './ChatPage';
 
-interface Chat {
-  id: string;
-  title: string;
-  updated_at: string;
-}
-
 export default function ChatLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [chats, setChats] = useState<Chat[]>([]);
-  const [activeChat, setActiveChat] = useState<string | null>(null);
+  const [chats, setChats] = useState([]);
+  const [activeChat, setActiveChat] = useState(null);
 
   useEffect(() => {
     loadChats();
@@ -38,7 +32,7 @@ export default function ChatLayout() {
   };
 
   const handleNewChat = () => {
-    const newChat: Chat = {
+    const newChat = {
       id: Date.now().toString(),
       title: 'New Chat',
       updated_at: new Date().toISOString(),
@@ -47,7 +41,7 @@ export default function ChatLayout() {
     setActiveChat(newChat.id);
   };
 
-  const formatDate = (timestamp: string) => {
+  const formatDate = (timestamp) => {
     const date = new Date(timestamp);
     const today = new Date();
     const yesterday = new Date(today);
