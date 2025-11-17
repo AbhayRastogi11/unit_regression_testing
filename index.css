@@ -1,0 +1,46 @@
+/* ----------------------------- */
+/* Modern Sidebar (Option A)     */
+/* ----------------------------- */
+
+.sidebar {
+  width: 240px;
+  background: white;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.08);
+  border-right: 1px solid #e5e7eb;
+  z-index: 30;
+}
+
+.sidebar-item {
+  transition: all 0.25s ease;
+}
+
+.sidebar-item:hover {
+  background: #f0f4ff;
+  transform: translateX(2px);
+}
+
+.overlay {
+  background: rgba(0, 0, 0, 0.4);
+  animation: fadeIn 0.25s ease forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Chat Page smooth fade + slide */
+.chat-page-enter {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.chat-page-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: 0.3s ease;
+}
+
+
+
+<div className="chat-page-enter lg:pl-[240px]">
