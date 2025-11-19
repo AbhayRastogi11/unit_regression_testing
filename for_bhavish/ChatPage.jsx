@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Sparkles, Wrench } from "lucide-react";
+import { Send, Sparkles, Wrench, Trash2 } from "lucide-react";
 
 import MessageBubble from "./MessageBubble.jsx";
 
@@ -17,6 +17,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState(initialMessages);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+ const API_BASE = "http://127.0.0.1:8001";
 
     // user + session identity (for per-user Redis context)
   const [userId] = useState(() => {
@@ -115,11 +116,31 @@ export default function ChatPage() {
       // ignore storage errors
     }
   };
+  const startFreshSessionWithoutArchiving = () => {
+    const freshSession =
+      (typeof window !== "undefined" &&
+        window.crypto &&
+        window.crypto.randomUUID &&
+        window.crypto.randomUUID()) ||
+      `session-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-  const handleNewChat = () => {
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      window.sessionStorage.setItem("flightChatSessionId", freshSession);
+    }
+
+    setSessionId(freshSession);
+    setMessages(initialMessages);
+    setCurrentChatTitle("New chat");
+    setToolCalls([]);
+    setCurrentStatus("online");
+    setUserHasScrolled(false);
+    setIsNearBottom(true);
+  };
+
+   const handleNewChat = () => {
     const snapshotMessages = messages;
 
-    // If there is at least one real message in this chat, push it into recentChats
+    // Agar chat me koi user message hai, to usko hamesha save karo
     if (snapshotMessages && snapshotMessages.length > 1) {
       const lastUser = [...snapshotMessages].reverse().find((m) => m.role === "user");
       const titleFromUser =
@@ -145,26 +166,10 @@ export default function ChatPage() {
       });
     }
 
-    // Start a fresh session
-    const freshSession =
-      (typeof window !== "undefined" &&
-        window.crypto &&
-        window.crypto.randomUUID &&
-        window.crypto.randomUUID()) ||
-      `session-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-
-    if (typeof window !== "undefined" && window.sessionStorage) {
-      window.sessionStorage.setItem("flightChatSessionId", freshSession);
-    }
-
-    setSessionId(freshSession);
-    setMessages(initialMessages);
-    setCurrentChatTitle("New chat");
-    setToolCalls([]);
-    setCurrentStatus("online");
-    setUserHasScrolled(false);
-    setIsNearBottom(true);
+    // ab sirf fresh session start karo (archive ho chuka)
+    startFreshSessionWithoutArchiving();
   };
+
 
   const handleSelectRecentChat = (chatId) => {
     const chat = recentChats.find((c) => c.id === chatId);
@@ -181,10 +186,92 @@ export default function ChatPage() {
       return next;
     });
 
+    
+    setToolCalls([]);
+    setCurrentStatus("online");
     setUserHasScrolled(false);
     setIsNearBottom(true);
   };
 
+   const sidebarChats = React.useMemo(() => {
+    const base = [...recentChats];
+
+    const idx = base.findIndex((c) => c.id === sessionId);
+    if (idx >= 0) {
+      // agar yeh chat already recentChats me hai, usko update karo (title/messages)
+      base[idx] = {
+        ...base[idx],
+        title: currentChatTitle,
+        messages,
+      };
+    } else {
+      // nahi hai to current chat ko top pe daalo
+      base.unshift({
+        id: sessionId,
+        title: currentChatTitle,
+        createdAt: Date.now(),
+        messages,
+      });
+    }
+
+    // max 3 chats hi dikhao
+    return base.slice(0, 3);
+  }, [recentChats, sessionId, currentChatTitle, messages]);
+    const deleteSession = async (sessionIdToDelete) => {
+    if (!sessionIdToDelete) return;
+    if (!confirm("Delete this session? This will remove its chat history.")) return;
+
+    let nextAfterDelete = [];
+
+    try {
+      // 1) Optimistically remove from recentChats + localStorage
+      setRecentChats((prev) => {
+        nextAfterDelete = prev.filter((c) => c.id !== sessionIdToDelete);
+        persistRecentChats(nextAfterDelete);
+        return nextAfterDelete;
+      });
+
+      // 2) Agar yahi current open session hai → fallback chat choose karo
+      if (sessionIdToDelete === sessionId) {
+        // kis chat pe jump karein?
+        const fallback =
+          nextAfterDelete.find((c) => c.id !== sessionIdToDelete) ||
+          nextAfterDelete[0];
+
+        if (fallback) {
+          // Kisi dusre stored chat pe switch
+          setSessionId(fallback.id);
+          setMessages(fallback.messages || initialMessages);
+          setCurrentChatTitle(fallback.title || "New chat");
+        } else {
+          // koi bhi chat nahi bachi → totally fresh
+          startFreshSessionWithoutArchiving();
+        }
+        setToolCalls([]);
+        setCurrentStatus("online");
+      }
+
+      // 3) Backend Redis se bhi delete karo
+      const params = new URLSearchParams({
+        userId,
+        sessionId: sessionIdToDelete,
+      });
+
+      const res = await fetch(`${API_BASE}/session?${params.toString()}`, {
+        method: "DELETE",
+        headers: { Accept: "application/json" },
+      });
+
+      if (!res.ok) {
+        console.warn("Failed to delete session on server", await res.text());
+      } else {
+        const body = await res.json();
+        console.info("Delete session response:", body);
+      }
+    } catch (err) {
+      console.error("deleteSession error:", err);
+    }
+  };
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
@@ -245,8 +332,8 @@ export default function ChatPage() {
     let firstContentArrived = false;
 
     try {
-          const baseUrl = "http://10.35.8.178:8001/get_data";
-          // const baseUrl = "http://127.0.0.1:8001/get_data";
+          // const baseUrl = "http://10.35.8.178:8001/get_data";
+          const baseUrl = "http://127.0.0.1:8001/get_data";
 
           const params = new URLSearchParams({
             userprompt: userPrompt,
@@ -480,39 +567,65 @@ return (
           <span>New chat</span>
         </button>
       </div>
-
-      <div className="sidebar-section">
-        <div className="sidebar-section-title">Current chat</div>
-        <button
-          type="button"
-          className="sidebar-chat-item sidebar-chat-item--active"
-          disabled
-        >
-          <span className="sidebar-chat-dot sidebar-chat-dot--active" />
-          <span className="sidebar-chat-text">{currentChatTitle}</span>
-        </button>
-      </div>
-
-      <div className="sidebar-section">
-        <div className="sidebar-section-title">Recent</div>
-        {recentChats.length === 0 ? (
-          <div className="sidebar-empty">No recent chats</div>
+<div className="sidebar-section">
+        <div className="sidebar-section-title">Chats</div>
+        {sidebarChats.length === 0 ? (
+          <div className="sidebar-empty">No chats yet</div>
         ) : (
-          recentChats.map((chat) => (
-            <button
-              key={chat.id}
-              type="button"
-              className="sidebar-chat-item"
-              onClick={() => handleSelectRecentChat(chat.id)}
-              disabled={isLoading && chat.id !== sessionId}
-            >
-              <span className="sidebar-chat-dot" />
-              <span className="sidebar-chat-text">{chat.title}</span>
-            </button>
-          ))
+          sidebarChats.map((chat) => {
+            const isActive = chat.id === sessionId;
+
+            return (
+              <div
+                key={chat.id}
+                style={{ display: "flex", gap: 8, alignItems: "center" }}
+              >
+                <button
+                  type="button"
+                  className={
+                    "sidebar-chat-item" +
+                    (isActive ? " sidebar-chat-item--active" : "")
+                  }
+                  onClick={() => handleSelectRecentChat(chat.id)}
+                  disabled={isLoading && !isActive}
+                  style={{ flex: 1, textAlign: "left" }}
+                >
+                  <span
+                    className={
+                      "sidebar-chat-dot" +
+                      (isActive ? " sidebar-chat-dot--active" : "")
+                    }
+                  />
+                  <span className="sidebar-chat-text">
+                    {chat.title || "Untitled chat"}
+                  </span>
+                </button>
+
+                {/* Delete button for each chat */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteSession(chat.id);
+                  }}
+                  disabled={isLoading}
+                  title="Delete session"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 6,
+                  }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            );
+          })
         )}
       </div>
     </aside>
+
+    
 
     {/* RIGHT: your existing chat UI */}
     <div className="chat-wrapper">
