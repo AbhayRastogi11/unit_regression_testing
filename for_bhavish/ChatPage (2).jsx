@@ -64,39 +64,7 @@ export default function ChatPage() {
   const bottomRef = useRef(null);
   // 🔄 Auto-save: jab bhi is session me real conversation ho jaye,
   // usko recentChats + localStorage me persist kar do
-  useEffect(() => {
-    // sirf tab save karna jab:
-    //  - greeting se zyada messages hon
-    //  - kam se kam 1 user message ho
-    if (!messages || messages.length <= 1) return;
-    const hasUser = messages.some((m) => m.role === "user");
-    if (!hasUser) return;
 
-    const lastUser = [...messages].reverse().find((m) => m.role === "user");
-
-    const titleFromUser =
-      (lastUser?.content || "").slice(0, 32) +
-      ((lastUser?.content || "").length > 32 ? "..." : "");
-
-    const safeTitle =
-      currentChatTitle !== "New chat"
-        ? currentChatTitle
-        : titleFromUser || "Previous chat";
-
-    const chatObj = {
-      id: sessionId,
-      title: safeTitle,
-      createdAt: Date.now(),
-      messages,
-    };
-
-    setRecentChats((prev) => {
-      const filtered = prev.filter((c) => c.id !== sessionId);
-      const next = [chatObj, ...filtered].slice(0, 3); // max 3 chats
-      persistRecentChats(next);
-      return next;
-    });
-  }, [messages, sessionId, currentChatTitle]);
 
   // --- scrolling state
   const [userHasScrolled, setUserHasScrolled] = useState(false);
@@ -118,6 +86,14 @@ export default function ChatPage() {
       setUserHasScrolled(true);
     } else if (nearBottom) {
       setUserHasScrolled(false);
+    }
+  };
+  const persistRecentChats = (chats) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("flightChatRecentChats", JSON.stringify(chats));
+    } catch {
+      // ignore storage errors
     }
   };
 
@@ -164,14 +140,7 @@ useEffect(() => {
       return null;
     }
   };
-    const persistRecentChats = (chats) => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem("flightChatRecentChats", JSON.stringify(chats));
-    } catch {
-      // ignore storage errors
-    }
-  };
+
   const startFreshSessionWithoutArchiving = () => {
     const freshSession =
       (typeof window !== "undefined" &&
