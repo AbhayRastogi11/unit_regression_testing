@@ -122,16 +122,37 @@ export default function ChatPage() {
   };
 
   // conservative auto-scroll (only when near bottom)
-  useEffect(() => {
-    if (isNearBottom) {
-      const el = chatRef.current;
-      if (el) {
-        el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
-      } else {
-        bottomRef.current?.scrollIntoView({ behavior: "auto" });
-      }
-    }
-  }, [messages, toolCalls, isNearBottom]);
+useEffect(() => {
+  if (!messages || messages.length <= 1) return;
+  const hasUser = messages.some((m) => m.role === "user");
+  if (!hasUser) return;
+
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+
+  const titleFromUser =
+    (lastUser?.content || "").slice(0, 32) +
+    ((lastUser?.content || "").length > 32 ? "..." : "");
+
+  const safeTitle =
+    currentChatTitle !== "New chat"
+      ? currentChatTitle
+      : titleFromUser || "Previous chat";
+
+  const chatObj = {
+    id: sessionId,
+    title: safeTitle,
+    createdAt: Date.now(),
+    messages,
+  };
+
+  setRecentChats((prev) => {
+    const filtered = prev.filter((c) => c.id !== sessionId);
+    const next = [chatObj, ...filtered]; // ❌ .slice(0, 3) hata diya
+    persistRecentChats(next);
+    return next;
+  });
+}, [messages, sessionId, currentChatTitle]);
+
 
   // util: pretty JSON if possible
   const tryPrettyJson = (text) => {
@@ -173,96 +194,93 @@ export default function ChatPage() {
   };
 
    const handleNewChat = () => {
-    const snapshotMessages = messages;
+  const snapshotMessages = messages;
 
-    // Agar chat me koi user message hai, to usko hamesha save karo
-    if (snapshotMessages && snapshotMessages.length > 1) {
-      const lastUser = [...snapshotMessages].reverse().find((m) => m.role === "user");
-      const titleFromUser =
-        (lastUser?.content || "").slice(0, 32) +
-        ((lastUser?.content || "").length > 32 ? "..." : "");
-      const safeTitle =
-        currentChatTitle !== "New chat"
-          ? currentChatTitle
-          : titleFromUser || "Previous chat";
+  if (snapshotMessages && snapshotMessages.length > 1) {
+    const lastUser = [...snapshotMessages].reverse().find((m) => m.role === "user");
+    const titleFromUser =
+      (lastUser?.content || "").slice(0, 32) +
+      ((lastUser?.content || "").length > 32 ? "..." : "");
+    const safeTitle =
+      currentChatTitle !== "New chat"
+        ? currentChatTitle
+        : titleFromUser || "Previous chat";
 
-      const chatObj = {
-        id: sessionId,
-        title: safeTitle,
-        createdAt: Date.now(),
-        messages: snapshotMessages,
-      };
+    const chatObj = {
+      id: sessionId,
+      title: safeTitle,
+      createdAt: Date.now(),
+      messages: snapshotMessages,
+    };
 
-      setRecentChats((prev) => {
-        const filtered = prev.filter((c) => c.id !== sessionId);
-        const next = [chatObj, ...filtered].slice(0, 3);
-        persistRecentChats(next);
-        return next;
-      });
-    }
-
-    // ab sirf fresh session start karo (archive ho chuka)
-    startFreshSessionWithoutArchiving();
-  };
-
-
-  const handleSelectRecentChat = (chatId) => {
-    if (chatId === sessionId) return;
-
-    // jis chat pe click kia hai, use recentChats ya sidebarChats se dhundo
-    const chatFromRecent = recentChats.find((c) => c.id === chatId) || null;
-    const chatFromSidebar =
-      (typeof sidebarChats !== "undefined" &&
-        sidebarChats.find((c) => c.id === chatId)) ||
-      null;
-
-    const chat = chatFromRecent || chatFromSidebar;
-    if (!chat) return;
-
-    // selected session load karo
-    setSessionId(chat.id);
-    setCurrentChatTitle(chat.title || "Previous chat");
-    setMessages(chat.messages || initialMessages);
-
-    // sidebar re-order: selected chat top pe
     setRecentChats((prev) => {
-      const filtered = prev.filter((c) => c.id !== chat.id);
-      const next = [chat, ...filtered].slice(0, 3);
+      const filtered = prev.filter((c) => c.id !== sessionId);
+      const next = [chatObj, ...filtered]; // ❌ yahan bhi slice hataya
       persistRecentChats(next);
       return next;
     });
+  }
 
-    setToolCalls([]);
-    setCurrentStatus("online");
-    setUserHasScrolled(false);
-    setIsNearBottom(true);
-  };
+  startFreshSessionWithoutArchiving();
+};
 
 
-   const sidebarChats = React.useMemo(() => {
-    const base = [...recentChats];
+  const handleSelectRecentChat = (chatId) => {
+  if (chatId === sessionId) return;
 
-    const idx = base.findIndex((c) => c.id === sessionId);
-    if (idx >= 0) {
-      // agar yeh chat already recentChats me hai, usko update karo (title/messages)
-      base[idx] = {
-        ...base[idx],
-        title: currentChatTitle,
-        messages,
-      };
-    } else {
-      // nahi hai to current chat ko top pe daalo
-      base.unshift({
-        id: sessionId,
-        title: currentChatTitle,
-        createdAt: Date.now(),
-        messages,
-      });
-    }
+  const chatFromRecent = recentChats.find((c) => c.id === chatId) || null;
+  const chatFromSidebar =
+    (typeof sidebarChats !== "undefined" &&
+      sidebarChats.find((c) => c.id === chatId)) ||
+    null;
 
-    // max 3 chats hi dikhao
-    return base.slice(0, 3);
-  }, [recentChats, sessionId, currentChatTitle, messages]);
+  const chat = chatFromRecent || chatFromSidebar;
+  if (!chat) return;
+
+  setSessionId(chat.id);
+  setCurrentChatTitle(chat.title || "Previous chat");
+  setMessages(chat.messages || initialMessages);
+
+  setRecentChats((prev) => {
+    const filtered = prev.filter((c) => c.id !== chat.id);
+    const next = [chat, ...filtered]; // ❌ slice(0,3) hata diya
+    persistRecentChats(next);
+    return next;
+  });
+
+  setToolCalls([]);
+  setCurrentStatus("online");
+  setUserHasScrolled(false);
+  setIsNearBottom(true);
+};
+
+
+const sidebarChats = React.useMemo(() => {
+  const base = [...recentChats];
+
+  const idx = base.findIndex((c) => c.id === sessionId);
+  if (idx >= 0) {
+    base[idx] = {
+      ...base[idx],
+      title: currentChatTitle,
+      messages,
+    };
+  } else {
+    base.unshift({
+      id: sessionId,
+      title: currentChatTitle,
+      createdAt: Date.now(),
+      messages,
+    });
+  }
+
+  // ❌ yeh line hata do:
+  // return base.slice(0, 3);
+
+  // ✅ ab saare sessions dikhne lagenge
+  return base;
+}, [recentChats, sessionId, currentChatTitle, messages]);
+
     const deleteSession = async (sessionIdToDelete) => {
     if (!sessionIdToDelete) return;
     if (!confirm("Delete this session? This will remove its chat history.")) return;
