@@ -194,34 +194,30 @@ useEffect(() => {
 };
 
 
-  const handleSelectRecentChat = (chatId) => {
+const handleSelectRecentChat = (chatId) => {
   if (chatId === sessionId) return;
 
-  const chatFromRecent = recentChats.find((c) => c.id === chatId) || null;
-  const chatFromSidebar =
-    (typeof sidebarChats !== "undefined" &&
-      sidebarChats.find((c) => c.id === chatId)) ||
+  // sirf existing chat ko dhundo
+  const chat =
+    recentChats.find((c) => c.id === chatId) ||
+    sidebarChats.find((c) => c.id === chatId) ||
     null;
 
-  const chat = chatFromRecent || chatFromSidebar;
   if (!chat) return;
 
+  // active session change karo
   setSessionId(chat.id);
   setCurrentChatTitle(chat.title || "Previous chat");
   setMessages(chat.messages || initialMessages);
 
-  setRecentChats((prev) => {
-    const filtered = prev.filter((c) => c.id !== chat.id);
-    const next = [chat, ...filtered]; // ❌ slice(0,3) hata diya
-    persistRecentChats(next);
-    return next;
-  });
+  // ❌ yahan recentChats ko mutate NA karo, order same rehne do
 
   setToolCalls([]);
   setCurrentStatus("online");
   setUserHasScrolled(false);
   setIsNearBottom(true);
 };
+
 
 
 const sidebarChats = React.useMemo(() => {
