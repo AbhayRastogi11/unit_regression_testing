@@ -62,6 +62,41 @@ export default function ChatPage() {
   const [currentStatus, setCurrentStatus] = useState("online");
   const [toolCalls, setToolCalls] = useState([]);
   const bottomRef = useRef(null);
+  // 🔄 Auto-save: jab bhi is session me real conversation ho jaye,
+  // usko recentChats + localStorage me persist kar do
+  useEffect(() => {
+    // sirf tab save karna jab:
+    //  - greeting se zyada messages hon
+    //  - kam se kam 1 user message ho
+    if (!messages || messages.length <= 1) return;
+    const hasUser = messages.some((m) => m.role === "user");
+    if (!hasUser) return;
+
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+
+    const titleFromUser =
+      (lastUser?.content || "").slice(0, 32) +
+      ((lastUser?.content || "").length > 32 ? "..." : "");
+
+    const safeTitle =
+      currentChatTitle !== "New chat"
+        ? currentChatTitle
+        : titleFromUser || "Previous chat";
+
+    const chatObj = {
+      id: sessionId,
+      title: safeTitle,
+      createdAt: Date.now(),
+      messages,
+    };
+
+    setRecentChats((prev) => {
+      const filtered = prev.filter((c) => c.id !== sessionId);
+      const next = [chatObj, ...filtered].slice(0, 3); // max 3 chats
+      persistRecentChats(next);
+      return next;
+    });
+  }, [messages, sessionId, currentChatTitle]);
 
   // --- scrolling state
   const [userHasScrolled, setUserHasScrolled] = useState(false);
@@ -171,69 +206,37 @@ export default function ChatPage() {
   };
 
 
-const handleSelectRecentChat = (chatId) => {
-  // Agar wahi session pe click kar diya to kuch mat karo
-  if (chatId === sessionId) return;
+  const handleSelectRecentChat = (chatId) => {
+    if (chatId === sessionId) return;
 
-  // 1) CURRENT SESSION KO PEHLE SAVE KARO (agar isme user messages hain)
-  if (messages && messages.length > 1) {
-    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    // jis chat pe click kia hai, use recentChats ya sidebarChats se dhundo
+    const chatFromRecent = recentChats.find((c) => c.id === chatId) || null;
+    const chatFromSidebar =
+      (typeof sidebarChats !== "undefined" &&
+        sidebarChats.find((c) => c.id === chatId)) ||
+      null;
 
-    const titleFromUser =
-      (lastUser?.content || "").slice(0, 32) +
-      ((lastUser?.content || "").length > 32 ? "..." : "");
+    const chat = chatFromRecent || chatFromSidebar;
+    if (!chat) return;
 
-    const safeTitle =
-      currentChatTitle !== "New chat"
-        ? currentChatTitle
-        : titleFromUser || "Previous chat";
+    // selected session load karo
+    setSessionId(chat.id);
+    setCurrentChatTitle(chat.title || "Previous chat");
+    setMessages(chat.messages || initialMessages);
 
-    const currentChatObj = {
-      id: sessionId,
-      title: safeTitle,
-      createdAt: Date.now(),
-      messages,
-    };
-
+    // sidebar re-order: selected chat top pe
     setRecentChats((prev) => {
-      const filtered = prev.filter((c) => c.id !== sessionId);
-      const next = [currentChatObj, ...filtered].slice(0, 3);
+      const filtered = prev.filter((c) => c.id !== chat.id);
+      const next = [chat, ...filtered].slice(0, 3);
       persistRecentChats(next);
       return next;
     });
-  }
 
-  // 2) Ab jis chat pe click kia hai, usko dhundo
-  //    Pehle sidebarChats se (kyunki yahan updated data hota hai),
-  //    warna fallback recentChats se.
-  const chatFromSidebar =
-    (typeof sidebarChats !== "undefined" &&
-      sidebarChats.find((c) => c.id === chatId)) ||
-    null;
-
-  const chatFromRecent = recentChats.find((c) => c.id === chatId) || null;
-
-  const chat = chatFromSidebar || chatFromRecent;
-  if (!chat) return;
-
-  // 3) Ab selected session load karo
-  setMessages(chat.messages || initialMessages);
-  setSessionId(chat.id);
-  setCurrentChatTitle(chat.title || "Previous chat");
-
-  // Selected chat ko top pe le aao sidebar me
-  setRecentChats((prev) => {
-    const filtered = prev.filter((c) => c.id !== chat.id);
-    const next = [chat, ...filtered].slice(0, 3);
-    persistRecentChats(next);
-    return next;
-  });
-
-  setToolCalls([]);
-  setCurrentStatus("online");
-  setUserHasScrolled(false);
-  setIsNearBottom(true);
-};
+    setToolCalls([]);
+    setCurrentStatus("online");
+    setUserHasScrolled(false);
+    setIsNearBottom(true);
+  };
 
 
    const sidebarChats = React.useMemo(() => {
