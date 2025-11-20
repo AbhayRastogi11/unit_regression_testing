@@ -99,6 +99,9 @@ export default function ChatPage() {
 
   // conservative auto-scroll (only when near bottom)
 useEffect(() => {
+  // sirf tab save karna jab:
+  //  - greeting se zyada messages hon
+  //  - kam se kam 1 user message ho
   if (!messages || messages.length <= 1) return;
   const hasUser = messages.some((m) => m.role === "user");
   if (!hasUser) return;
@@ -122,12 +125,24 @@ useEffect(() => {
   };
 
   setRecentChats((prev) => {
-    const filtered = prev.filter((c) => c.id !== sessionId);
-    const next = [chatObj, ...filtered]; // ❌ .slice(0, 3) hata diya
+    // check: kya yeh session pehle se list me hai?
+    const idx = prev.findIndex((c) => c.id === sessionId);
+
+    let next;
+    if (idx >= 0) {
+      // ✅ existing session → same position pe update
+      next = [...prev];
+      next[idx] = { ...next[idx], ...chatObj };
+    } else {
+      // ✅ new session → list ke end me add
+      next = [...prev, chatObj];
+    }
+
     persistRecentChats(next);
     return next;
   });
 }, [messages, sessionId, currentChatTitle]);
+
 
 
   // util: pretty JSON if possible
@@ -182,12 +197,18 @@ useEffect(() => {
       messages: snapshotMessages,
     };
 
-    setRecentChats((prev) => {
-      const filtered = prev.filter((c) => c.id !== sessionId);
-      const next = [chatObj, ...filtered]; // ❌ yahan bhi slice hataya
-      persistRecentChats(next);
-      return next;
-    });
+setRecentChats((prev) => {
+  const idx = prev.findIndex((c) => c.id === sessionId);
+  let next;
+  if (idx >= 0) {
+    next = [...prev];
+    next[idx] = { ...next[idx], ...chatObj };
+  } else {
+    next = [...prev, chatObj];
+  }
+  persistRecentChats(next);
+  return next;
+});
   }
 
   startFreshSessionWithoutArchiving();
