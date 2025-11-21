@@ -100,9 +100,6 @@ export default function ChatPage() {
 
   // conservative auto-scroll (only when near bottom)
 useEffect(() => {
-  // sirf tab save karna jab:
-  //  - greeting se zyada messages hon
-  //  - kam se kam 1 user message ho
   if (!messages || messages.length <= 1) return;
   const hasUser = messages.some((m) => m.role === "user");
   if (!hasUser) return;
@@ -118,7 +115,7 @@ useEffect(() => {
       ? currentChatTitle
       : titleFromUser || "Previous chat";
 
-  const chatObj = {
+  const baseChatObj = {
     id: sessionId,
     title: safeTitle,
     createdAt: Date.now(),
@@ -126,23 +123,29 @@ useEffect(() => {
   };
 
   setRecentChats((prev) => {
-    // check: kya yeh session pehle se list me hai?
-    const idx = prev.findIndex((c) => c.id === sessionId);
+    const existing = prev.find((c) => c.id === sessionId);
+
+    // 🔒 createdAt ko preserve karo agar pehle se hai
+    const createdAt = existing?.createdAt ?? baseChatObj.createdAt;
+    const chatObj = { ...baseChatObj, createdAt };
 
     let next;
-    if (idx >= 0) {
-      // ✅ existing session → same position pe update
-      next = [...prev];
-      next[idx] = { ...next[idx], ...chatObj };
+
+    if (existing) {
+      // 🚫 POSITION SAME RAKHNA hai → sirf uss index pe update karo
+      next = prev.map((c) =>
+        c.id === sessionId ? { ...c, ...chatObj } : c
+      );
     } else {
-      // ✅ new session → list ke end me add
-      next = [...prev, chatObj];
+      // 🆕 New session → list ke TOP pe add
+      next = [chatObj, ...prev];
     }
 
     persistRecentChats(next);
     return next;
   });
 }, [messages, sessionId, currentChatTitle]);
+
 
 
 
@@ -191,25 +194,34 @@ useEffect(() => {
         ? currentChatTitle
         : titleFromUser || "Previous chat";
 
-    const chatObj = {
-      id: sessionId,
-      title: safeTitle,
-      createdAt: Date.now(),
-      messages: snapshotMessages,
-    };
+    const chatObjBase = {
+  id: sessionId,
+  title: safeTitle,
+  createdAt: Date.now(),
+  messages: snapshotMessages,
+};
 
 setRecentChats((prev) => {
-  const idx = prev.findIndex((c) => c.id === sessionId);
+  const existing = prev.find((c) => c.id === sessionId);
+  const createdAt = existing?.createdAt ?? chatObjBase.createdAt;
+  const chatObj = { ...chatObjBase, createdAt };
+
   let next;
-  if (idx >= 0) {
-    next = [...prev];
-    next[idx] = { ...next[idx], ...chatObj };
+
+  if (existing) {
+    // POSITION same rakho, sirf data update
+    next = prev.map((c) =>
+      c.id === sessionId ? { ...c, ...chatObj } : c
+    );
   } else {
-    next = [...prev, chatObj];
+    // naya chat → TOP pe dikhna chahiye
+    next = [chatObj, ...prev];
   }
+
   persistRecentChats(next);
   return next;
 });
+
   }
 
   startFreshSessionWithoutArchiving();
@@ -245,17 +257,17 @@ const handleSelectRecentChat = (chatId) => {
 const sidebarChats = React.useMemo(() => {
   const base = [...recentChats];
 
-  // current active session ko list me reflect karo
   const idx = base.findIndex((c) => c.id === sessionId);
   if (idx >= 0) {
+    // sirf title/messages update karo, createdAt same rehne do
     base[idx] = {
       ...base[idx],
       title: currentChatTitle,
       messages,
     };
   } else {
-    // agar yeh brand new session hai to list me add karo
-    base.push({
+    // current session agar list me nahi hai → TOP pe dikhado
+    base.unshift({
       id: sessionId,
       title: currentChatTitle,
       createdAt: Date.now(),
@@ -263,10 +275,7 @@ const sidebarChats = React.useMemo(() => {
     });
   }
 
-  // 🧠 IMPORTANT: UI me newest chat upar chahiye
-  // createdAt DESC (newest first)
-  base.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-
+  // ❌ koi sort nahi – order same rahega
   return base;
 }, [recentChats, sessionId, currentChatTitle, messages]);
 
@@ -956,67 +965,3 @@ return (
 );
 }
 
-
-
-/* PAGE LAYOUT (agar already hai toh skip karo) */
-.page-shell {
-  display: flex;
-  height: 100vh;
-  overflow: hidden;
-}
-
-/* Right side chat area */
-.chat-wrapper {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  background: #f8fafc;
-}
-
-/* LEFT SIDEBAR – base style */
-.chat-sidebar {
-  width: 280px;
-  max-width: 80vw;
-  background: #ffffff;
-  border-right: 1px solid #e2e8f0;
-  padding: 12px 12px 16px;
-  display: flex;
-  flex-direction: column;
-
-  /* 👇 slide-in animation on mount */
-  animation: chatSidebarSlideIn 0.25s ease-out;
-}
-
-/* Slide-in keyframes */
-@keyframes chatSidebarSlideIn {
-  from {
-    transform: translateX(-12px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-/* Mobile / small screens: sidebar as overlay */
-@media (max-width: 768px) {
-  .page-shell {
-    position: relative;
-  }
-
-  .chat-sidebar {
-    position: fixed;
-    top: 0;
-    bottom: 0;
-    left: 0;
-
-    /* overlay feel */
-    z-index: 30;
-    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
-
-    /* thoda comfy width */
-    width: 320px;
-    max-width: 85vw;
-  }
-}
