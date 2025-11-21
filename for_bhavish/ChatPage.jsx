@@ -58,10 +58,14 @@ export default function ChatPage() {
     }
   });
 
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const [currentStatus, setCurrentStatus] = useState("online");
   const [toolCalls, setToolCalls] = useState([]);
   const bottomRef = useRef(null);
+  // 🔄 Auto-save: jab bhi is session me real conversation ho jaye,
+  // usko recentChats + localStorage me persist kar do
+
 
   // --- scrolling state
   const [userHasScrolled, setUserHasScrolled] = useState(false);
@@ -85,18 +89,62 @@ export default function ChatPage() {
       setUserHasScrolled(false);
     }
   };
+  const persistRecentChats = (chats) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("flightChatRecentChats", JSON.stringify(chats));
+    } catch {
+      // ignore storage errors
+    }
+  };
 
   // conservative auto-scroll (only when near bottom)
-  useEffect(() => {
-    if (isNearBottom) {
-      const el = chatRef.current;
-      if (el) {
-        el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
-      } else {
-        bottomRef.current?.scrollIntoView({ behavior: "auto" });
-      }
+useEffect(() => {
+  // sirf tab save karna jab:
+  //  - greeting se zyada messages hon
+  //  - kam se kam 1 user message ho
+  if (!messages || messages.length <= 1) return;
+  const hasUser = messages.some((m) => m.role === "user");
+  if (!hasUser) return;
+
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+
+  const titleFromUser =
+    (lastUser?.content || "").slice(0, 32) +
+    ((lastUser?.content || "").length > 32 ? "..." : "");
+
+  const safeTitle =
+    currentChatTitle !== "New chat"
+      ? currentChatTitle
+      : titleFromUser || "Previous chat";
+
+  const chatObj = {
+    id: sessionId,
+    title: safeTitle,
+    createdAt: Date.now(),
+    messages,
+  };
+
+  setRecentChats((prev) => {
+    // check: kya yeh session pehle se list me hai?
+    const idx = prev.findIndex((c) => c.id === sessionId);
+
+    let next;
+    if (idx >= 0) {
+      // ✅ existing session → same position pe update
+      next = [...prev];
+      next[idx] = { ...next[idx], ...chatObj };
+    } else {
+      // ✅ new session → list ke end me add
+      next = [...prev, chatObj];
     }
-  }, [messages, toolCalls, isNearBottom]);
+
+    persistRecentChats(next);
+    return next;
+  });
+}, [messages, sessionId, currentChatTitle]);
+
+
 
   // util: pretty JSON if possible
   const tryPrettyJson = (text) => {
@@ -108,14 +156,7 @@ export default function ChatPage() {
       return null;
     }
   };
-    const persistRecentChats = (chats) => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem("flightChatRecentChats", JSON.stringify(chats));
-    } catch {
-      // ignore storage errors
-    }
-  };
+
   const startFreshSessionWithoutArchiving = () => {
     const freshSession =
       (typeof window !== "undefined" &&
@@ -138,85 +179,98 @@ export default function ChatPage() {
   };
 
    const handleNewChat = () => {
-    const snapshotMessages = messages;
+  const snapshotMessages = messages;
 
-    // Agar chat me koi user message hai, to usko hamesha save karo
-    if (snapshotMessages && snapshotMessages.length > 1) {
-      const lastUser = [...snapshotMessages].reverse().find((m) => m.role === "user");
-      const titleFromUser =
-        (lastUser?.content || "").slice(0, 32) +
-        ((lastUser?.content || "").length > 32 ? "..." : "");
-      const safeTitle =
-        currentChatTitle !== "New chat"
-          ? currentChatTitle
-          : titleFromUser || "Previous chat";
+  if (snapshotMessages && snapshotMessages.length > 1) {
+    const lastUser = [...snapshotMessages].reverse().find((m) => m.role === "user");
+    const titleFromUser =
+      (lastUser?.content || "").slice(0, 32) +
+      ((lastUser?.content || "").length > 32 ? "..." : "");
+    const safeTitle =
+      currentChatTitle !== "New chat"
+        ? currentChatTitle
+        : titleFromUser || "Previous chat";
 
-      const chatObj = {
-        id: sessionId,
-        title: safeTitle,
-        createdAt: Date.now(),
-        messages: snapshotMessages,
-      };
+    const chatObj = {
+      id: sessionId,
+      title: safeTitle,
+      createdAt: Date.now(),
+      messages: snapshotMessages,
+    };
 
-      setRecentChats((prev) => {
-        const filtered = prev.filter((c) => c.id !== sessionId);
-        const next = [chatObj, ...filtered].slice(0, 3);
-        persistRecentChats(next);
-        return next;
-      });
-    }
+setRecentChats((prev) => {
+  const idx = prev.findIndex((c) => c.id === sessionId);
+  let next;
+  if (idx >= 0) {
+    next = [...prev];
+    next[idx] = { ...next[idx], ...chatObj };
+  } else {
+    next = [...prev, chatObj];
+  }
+  persistRecentChats(next);
+  return next;
+});
+  }
 
-    // ab sirf fresh session start karo (archive ho chuka)
-    startFreshSessionWithoutArchiving();
-  };
+  startFreshSessionWithoutArchiving();
+};
 
 
-  const handleSelectRecentChat = (chatId) => {
-    const chat = recentChats.find((c) => c.id === chatId);
-    if (!chat) return;
+const handleSelectRecentChat = (chatId) => {
+  if (chatId === sessionId) return;
 
-    setMessages(chat.messages || initialMessages);
-    setSessionId(chat.id);
-    setCurrentChatTitle(chat.title || "Previous chat");
+  // sirf existing chat ko dhundo
+  const chat =
+    recentChats.find((c) => c.id === chatId) ||
+    sidebarChats.find((c) => c.id === chatId) ||
+    null;
 
-    setRecentChats((prev) => {
-      const filtered = prev.filter((c) => c.id !== chatId);
-      const next = [chat, ...filtered].slice(0, 3);
-      persistRecentChats(next);
-      return next;
+  if (!chat) return;
+
+  // active session change karo
+  setSessionId(chat.id);
+  setCurrentChatTitle(chat.title || "Previous chat");
+  setMessages(chat.messages || initialMessages);
+
+  // ❌ yahan recentChats ko mutate NA karo, order same rehne do
+
+  setToolCalls([]);
+  setCurrentStatus("online");
+  setUserHasScrolled(false);
+  setIsNearBottom(true);
+};
+
+
+
+const sidebarChats = React.useMemo(() => {
+  const base = [...recentChats];
+
+  // current active session ko list me reflect karo
+  const idx = base.findIndex((c) => c.id === sessionId);
+  if (idx >= 0) {
+    base[idx] = {
+      ...base[idx],
+      title: currentChatTitle,
+      messages,
+    };
+  } else {
+    // agar yeh brand new session hai to list me add karo
+    base.push({
+      id: sessionId,
+      title: currentChatTitle,
+      createdAt: Date.now(),
+      messages,
     });
+  }
 
-    
-    setToolCalls([]);
-    setCurrentStatus("online");
-    setUserHasScrolled(false);
-    setIsNearBottom(true);
-  };
+  // 🧠 IMPORTANT: UI me newest chat upar chahiye
+  // createdAt DESC (newest first)
+  base.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-   const sidebarChats = React.useMemo(() => {
-    const base = [...recentChats];
+  return base;
+}, [recentChats, sessionId, currentChatTitle, messages]);
 
-    const idx = base.findIndex((c) => c.id === sessionId);
-    if (idx >= 0) {
-      // agar yeh chat already recentChats me hai, usko update karo (title/messages)
-      base[idx] = {
-        ...base[idx],
-        title: currentChatTitle,
-        messages,
-      };
-    } else {
-      // nahi hai to current chat ko top pe daalo
-      base.unshift({
-        id: sessionId,
-        title: currentChatTitle,
-        createdAt: Date.now(),
-        messages,
-      });
-    }
 
-    // max 3 chats hi dikhao
-    return base.slice(0, 3);
-  }, [recentChats, sessionId, currentChatTitle, messages]);
     const deleteSession = async (sessionIdToDelete) => {
     if (!sessionIdToDelete) return;
     if (!confirm("Delete this session? This will remove its chat history.")) return;
@@ -555,18 +609,35 @@ export default function ChatPage() {
 return (
   <div className="page-shell">
     {/* LEFT: Side panel */}
-    <aside className="chat-sidebar">
-      <div className="sidebar-header">
-        <button
-          type="button"
-          className="sidebar-new-chat-btn"
-          onClick={handleNewChat}
-          disabled={isLoading}
-        >
-          <span className="sidebar-new-chat-icon">＋</span>
-          <span>New chat</span>
-        </button>
-      </div>
+    {isSidebarOpen && (
+      <aside className="chat-sidebar">
+        <div className="sidebar-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <button
+            type="button"
+            className="sidebar-new-chat-btn"
+            onClick={handleNewChat}
+            disabled={isLoading}
+          >
+            <span className="sidebar-new-chat-icon">＋</span>
+            <span>New chat</span>
+          </button>
+
+          {/* 👇 Chhota close icon (optional) */}
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(false)}
+            style={{
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              fontSize: "16px",
+              lineHeight: 1,
+            }}
+            title="Close sidebar"
+          >
+            ×
+          </button>
+        </div>
 <div className="sidebar-section">
         <div className="sidebar-section-title">Chats</div>
         {sidebarChats.length === 0 ? (
@@ -625,7 +696,7 @@ return (
       </div>
     </aside>
 
-    
+    )} 
 
     {/* RIGHT: your existing chat UI */}
     <div className="chat-wrapper">
@@ -652,13 +723,22 @@ return (
         <div className="chat-header-right">
           <button
             className="header-pill"
+            onClick={() => setIsSidebarOpen((prev) => !prev)}
+            type="button"
+          >
+            {isSidebarOpen ? "Hide chats" : "Show chats"}
+          </button>
+
+          <button
+            className="header-pill"
             onClick={handleNewChat}
+            type="button"
           >
             New Chat
           </button>
         </div>
-      </header>
-
+      </header> 
+      
       <main className="chat-main" ref={chatRef} onScroll={onScroll}>
         <AnimatePresence>
           {messages.map((msg, index) => {
@@ -874,4 +954,69 @@ return (
     </div>
   </div>
 );
+}
+
+
+
+/* PAGE LAYOUT (agar already hai toh skip karo) */
+.page-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Right side chat area */
+.chat-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+}
+
+/* LEFT SIDEBAR – base style */
+.chat-sidebar {
+  width: 280px;
+  max-width: 80vw;
+  background: #ffffff;
+  border-right: 1px solid #e2e8f0;
+  padding: 12px 12px 16px;
+  display: flex;
+  flex-direction: column;
+
+  /* 👇 slide-in animation on mount */
+  animation: chatSidebarSlideIn 0.25s ease-out;
+}
+
+/* Slide-in keyframes */
+@keyframes chatSidebarSlideIn {
+  from {
+    transform: translateX(-12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Mobile / small screens: sidebar as overlay */
+@media (max-width: 768px) {
+  .page-shell {
+    position: relative;
+  }
+
+  .chat-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+
+    /* overlay feel */
+    z-index: 30;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
+
+    /* thoda comfy width */
+    width: 320px;
+    max-width: 85vw;
+  }
 }
