@@ -12,6 +12,7 @@ const initialMessages = [
     time: "11:00 AM",
   },
 ];
+const MAX_SESSIONS = 10;
 
 export default function ChatPage() {
   const [messages, setMessages] = useState(initialMessages);
@@ -47,18 +48,39 @@ export default function ChatPage() {
   });
 
   const [currentChatTitle, setCurrentChatTitle] = useState("New chat");
+const [recentChats, setRecentChats] = useState(() => {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = window.localStorage.getItem("flightChatRecentChats");
+    const parsed = stored ? JSON.parse(stored) : [];
+    if (Array.isArray(parsed) && parsed.length > MAX_SESSIONS) {
+      // sirf top ke 10 sessions rakho
+      return parsed.slice(0, MAX_SESSIONS);
+    }
+    return parsed;
+  } catch {
+    return [];
+  }
+});
 
-  const [recentChats, setRecentChats] = useState(() => {
-    if (typeof window === "undefined") return [];
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     try {
-      const stored = window.localStorage.getItem("flightChatRecentChats");
-      return stored ? JSON.parse(stored) : [];
+      if (typeof window === "undefined") return true;
+      const stored = window.localStorage.getItem("flightChatSidebarOpen");
+      if (stored === null) return true; // default: open
+      return stored === "true";
     } catch {
-      return [];
+      return true;
     }
   });
 
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("flightChatSidebarOpen", isSidebarOpen ? "true" : "false");
+      }
+    } catch {}
+  }, [isSidebarOpen]);
 
   const [currentStatus, setCurrentStatus] = useState("online");
   const [toolCalls, setToolCalls] = useState([]);
@@ -122,28 +144,34 @@ useEffect(() => {
     messages,
   };
 
-  setRecentChats((prev) => {
-    const existing = prev.find((c) => c.id === sessionId);
+setRecentChats((prev) => {
+  const existing = prev.find((c) => c.id === sessionId);
 
-    // 🔒 createdAt ko preserve karo agar pehle se hai
-    const createdAt = existing?.createdAt ?? baseChatObj.createdAt;
-    const chatObj = { ...baseChatObj, createdAt };
+  // 🔒 createdAt ko preserve karo agar pehle se hai
+  const createdAt = existing?.createdAt ?? baseChatObj.createdAt;
+  const chatObj = { ...baseChatObj, createdAt };
 
-    let next;
+  let next;
 
-    if (existing) {
-      // 🚫 POSITION SAME RAKHNA hai → sirf uss index pe update karo
-      next = prev.map((c) =>
-        c.id === sessionId ? { ...c, ...chatObj } : c
-      );
-    } else {
-      // 🆕 New session → list ke TOP pe add
-      next = [chatObj, ...prev];
-    }
+  if (existing) {
+    // 🚫 POSITION SAME RAKHNA hai → sirf uss index pe update karo
+    next = prev.map((c) =>
+      c.id === sessionId ? { ...c, ...chatObj } : c
+    );
+  } else {
+    // 🆕 New session → list ke TOP pe add
+    next = [chatObj, ...prev];
+  }
 
-    persistRecentChats(next);
-    return next;
-  });
+  // ⛔️ yahan se max 10 enforce karo
+  if (next.length > MAX_SESSIONS) {
+    next = next.slice(0, MAX_SESSIONS);
+  }
+
+  persistRecentChats(next);
+  return next;
+});
+
 }, [messages, sessionId, currentChatTitle]);
 
 
@@ -218,9 +246,16 @@ setRecentChats((prev) => {
     next = [chatObj, ...prev];
   }
 
+  // ⛔️ max 10 sessions
+  if (next.length > MAX_SESSIONS) {
+    next = next.slice(0, MAX_SESSIONS);
+  }
+
   persistRecentChats(next);
   return next;
 });
+
+
 
   }
 
@@ -631,21 +666,8 @@ return (
             <span>New chat</span>
           </button>
 
-          {/* 👇 Chhota close icon (optional) */}
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen(false)}
-            style={{
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              fontSize: "16px",
-              lineHeight: 1,
-            }}
-            title="Close sidebar"
-          >
-            ×
-          </button>
+          {/* Left close icon removed to prevent minimizing */}
+          <div style={{ width: 24 }} />
         </div>
 <div className="sidebar-section">
         <div className="sidebar-section-title">Chats</div>
@@ -711,40 +733,27 @@ return (
     <div className="chat-wrapper">
       {/* Header */}
       <header className="chat-header">
-        <div className="chat-header-left">
-          <div>
-            <div
-              className="chat-title"
-              style={{ display: "flex", alignItems: "center", gap: "8px" }}
-            >
-              <img
-                src="src/assets/indigo-logo.png"
-                alt="IndiGo Logo"
-                style={{ height: "30px" }}
-              />
-              Flight Assistant
-            </div>
-            <div className="chat-subtitle">
-              <Sparkles size={20} /> {currentStatus}
+        <div className="chat-header-left" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <img
+              src="src/assets/indigo-logo.png"
+              alt="IndiGo Logo"
+              style={{ height: "30px" }}
+            />
+            <div>
+              <div className="chat-title">Flight Assistant</div>
+              <div className="chat-subtitle">
+                <Sparkles size={20} /> {currentStatus}
+              </div>
             </div>
           </div>
+
+          {/* left header action removed per request */}
+          <div style={{ width: 0 }} />
         </div>
         <div className="chat-header-right">
-          <button
-            className="header-pill"
-            onClick={() => setIsSidebarOpen((prev) => !prev)}
-            type="button"
-          >
-            {isSidebarOpen ? "Hide chats" : "Show chats"}
-          </button>
-
-          <button
-            className="header-pill"
-            onClick={handleNewChat}
-            type="button"
-          >
-            New Chat
-          </button>
+          {/* Right header controls removed per request */}
+          <div style={{ width: 120 }} />
         </div>
       </header> 
       
@@ -964,4 +973,3 @@ return (
   </div>
 );
 }
-
