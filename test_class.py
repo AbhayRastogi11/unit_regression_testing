@@ -8,7 +8,7 @@ class TokenManager:
         self.last_token_refresh = None
         self.token_refresh_thread = None
         self.running = True
-        self._current_token = None
+        self._current_token = None  # ✅ in-memory token storage only
        
         if not self.client_id or not self.client_secret:
             raise ValueError("CLIENT_ID and CLIENT_SECRET must be set in environment variables")
@@ -26,13 +26,13 @@ class TokenManager:
             )
            
             if access_token:
-                # Update environment variable
+                # ✅ store only in memory (no env)
                 self._current_token = access_token
-                global _ACCESS_TOKEN
-                _ACCESS_TOKEN = access_token
-                print("hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",_ACCESS_TOKEN)
                 self.last_token_refresh = datetime.now()
-                logger.info(f"✅ Access token refreshed successfully at {self.last_token_refresh.strftime('%Y-%m-%d %H:%M:%S')}")
+                logger.info(
+                    f"✅ Access token refreshed successfully at "
+                    f"{self.last_token_refresh.strftime('%Y-%m-%d %H:%M:%S')}"
+                )
                 logger.info(f"   Token length: {len(access_token)} characters")
                 return True
             else:
@@ -59,28 +59,17 @@ class TokenManager:
         logger.info(f"🔄 Token refresh thread started (every {self.token_refresh_interval/60} minutes)")
    
     def get_current_token(self):
-        """Get the current access token"""
+        """Get the current access token (in-memory only)"""
         print(1)
-        if _ACCESS_TOKEN:
-            return _ACCESS_TOKEN
-        return False  
+        # ✅ if no token yet, try to refresh once
+        if not self._current_token:
+            refreshed = self.refresh_token()
+            if not refreshed:
+                return False
+        return self._current_token  
    
     def stop(self):
         """Stop the token refresh thread"""
         self.running = False
         if self.token_refresh_thread and self.token_refresh_thread.is_alive():
             logger.info("🛑 Stopping token refresh thread...")
- 
-     
- 
-a = TokenManager()
-t = a.get_current_token()
-print("--------------------------", t)
-def get_access_token():
-    """Get the current access token"""
-    global _token_manager, _ACCESS_TOKEN
-    if _ACCESS_TOKEN :
-        print("2")
-        return _token_manager.get_current_token()
-    print("3")
-    return _ACCESS_TOKEN
