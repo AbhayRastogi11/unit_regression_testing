@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 # Import the OAuth2 function
 from Oauth2 import get_microsoft_access_token
 from token_store import set_access_token
+import Event_sending
 
 # Load environment variables
 load_dotenv()
@@ -105,41 +106,19 @@ class EventSendingScheduler:
             raise FileNotFoundError(f"Script not found: {self.script_path}")
     
     def run_event_script(self):
-        """Execute the Event_sending.py script"""
+        """Execute the Event_sending main() directly in the same process."""
         try:
-            logger.info("=" * 50)
-            logger.info("📧 Starting Event_sending.py execution...")
+            logger.info(f"🚀 Starting Event_sending.main() (run #{self.run_count + 1})...")
             
-            # Run the script
-            result = subprocess.run(
-                [sys.executable, self.script_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,  # Combine stderr with stdout
-                text=True,
-                timeout=300,  # 5 minute timeout
-                universal_newlines=True
-            )
+            # ✅ yahan direct function call ho raha hai – NO subprocess
+            Event_sending.main()
             
-            # Log all output line by line
-            if result.stdout:
-                lines = result.stdout.strip().split('\n')
-                for line in lines:
-                    if line.strip():
-                        logger.info(f"[Event_sending] {line}")
-            
-            # Log completion status
-            if result.returncode == 0:
-                logger.info("✅ Event_sending.py completed successfully")
-            else:
-                logger.error(f"❌ Event_sending.py failed with return code {result.returncode}")
-                
-            logger.info("=" * 50)
-                    
-        except subprocess.TimeoutExpired:
-            logger.error("⏰ Event_sending.py execution timed out (5 minutes)")
+            logger.info("✅ Event_sending.main() completed successfully")
+            self.run_count += 1
+
         except Exception as e:
-            logger.error(f"❌ Error executing Event_sending.py: {e}")
-    
+            logger.error(f"❌ Error running Event_sending.main(): {e}", exc_info=True)
+
     def start(self):
         """Start the scheduler"""
         logger.info("=" * 60)
@@ -226,20 +205,3 @@ if __name__ == "__main__":
 
 
 
-
-
-# token_store.py
-
-ACCESS_TOKEN = None  # global variable
-
-def set_access_token(token: str) -> None:
-    global ACCESS_TOKEN
-    ACCESS_TOKEN = token
-
-def get_access_token() -> str:
-    from typing import Optional
-    global ACCESS_TOKEN
-    if not ACCESS_TOKEN:
-        # yahan pe tum logging bhi use kar sakte ho agar chaho
-        raise RuntimeError("ACCESS_TOKEN is not set in token_store yet.")
-    return ACCESS_TOKEN
