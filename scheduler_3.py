@@ -73,9 +73,6 @@ class TokenManager:
     def start_token_refresh_thread(self):
         """Start the background token refresh thread"""
         def token_refresh_worker():
-            # Initial token refresh
-            self.refresh_token()
-            
             while self.running:
                 time.sleep(self.token_refresh_interval)
                 if self.running:  # Check again after sleep
@@ -84,7 +81,7 @@ class TokenManager:
         self.token_refresh_thread = threading.Thread(target=token_refresh_worker, daemon=True)
         self.token_refresh_thread.start()
         logger.info(f"🔄 Token refresh thread started (every {self.token_refresh_interval/60} minutes)")
-    
+
     def stop(self):
         """Stop the token refresh thread"""
         self.running = False
@@ -132,6 +129,9 @@ class EventSendingScheduler:
         
         try:
             # Start the token refresh thread
+
+            if not self.token_manager.refresh_token():
+                logger.error("❌ Initial token refresh failed. Event_sending may fail until token is fixed.")
             self.token_manager.start_token_refresh_thread()
             
             while self.running:
