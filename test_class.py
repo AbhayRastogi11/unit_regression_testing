@@ -1,89 +1,104 @@
 import asyncio
-import os
-from dotenv import load_dotenv
-from openai import AzureOpenAI
-import requests
+import uvicorn
 
-from a2a_sdk.server import A2AServer, AgentCard, Skill
-from a2a_sdk.messages import TaskRequest, TaskResponse
+from a2a.server.apps import A2AStarletteApplication
+from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.tasks import InMemoryTaskStore
+from a2a.server.agent_execution import AgentExecutor, RequestContext, EventQueue
+from a2a.types import AgentCard, AgentSkill, AgentCapabilities
+from a2a.utils.message import new_agent_text_message
 
-load_dotenv()
 
-client = AzureOpenAI(
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION")
-)
+# ---- Simple in-memory fake flight DB ----
+FLIGHTS = {
+    "6E-101": {
+        "status": "On Time",
+        "from": "DEL",
+        "to": "BLR",
+        "departure": "14:30",
+        "arrival": "16:45",
+    },
+    "6E-202": {
+        "status": "Delayed",
+        "from": "BOM",
+        "to": "CCU",
+        "departure": "18:10",
+        "arrival": "20:55",
+        "delay_reason": "Weather congestion over eastern sector",
+    },
+}
 
-deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-FLIGHT_AGENT_URL = "http://localhost:8001"
 
-agent_card = AgentCard(
-    name="passenger_support_agent",
-    version="1.0.0",
-    description="Passenger support agent providing professional flight information responses.",
-    url="http://localhost:8000",
-    skills=[Skill(
-        id="support_chat",
-        name="Passenger Support Chat",
-        description="Provides professional support messaging."
-    )]
-)
+class FlightInfoAgent:
+    async def get_status(self, flight_number: str) -> str:
+        data = FLIGHTS.get(flight_number.upper())
+        if not data:
+            return f"Flight {flight_number} not found in the demo system."
 
-async def handle_task(req: TaskRequest):
-    if req.method != "support_chat":
-        return TaskResponse.error(req.id, "Unknown method")
-
-    flight_no = req.params.get("flight_number")
-
-    # 1) Call Flight Info Agent
-    flight_resp = requests.post(
-        FLIGHT_AGENT_URL + "/tasks/send",
-        json={
-            "jsonrpc": "2.0",
-            "id": "req_flight",
-            "method": "get_flight_status",
-            "params": {"flight_number": flight_no}
-        },
-        timeout=5
-    ).json()
-
-    data = flight_resp.get("result", {})
-
-    # 2) If not found, simple message
-    if "error" in data:
-        final_text = "The requested flight information is not available."
-    else:
-        # 3) Ask GPT-4o to write a short professional message
-        prompt = f"""
-You are an airline support assistant.
-Convert the following JSON flight data into a short, clear, professional message
-for the passenger. Do NOT add emojis. Keep it 1–2 sentences.
-
-Flight data:
-{data}
-"""
-
-        completion = client.chat.completions.create(
-            model=deployment_name,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
+        base = (
+            f"Flight {flight_number} from {data['from']} to {data['to']} "
+            f"is currently {data['status']}."
         )
-        final_text = completion.choices[0].message.content.strip()
+        if "departure" in data and "arrival" in data:
+            base += f" Scheduled departure {data['departure']}, arrival {data['arrival']}."
+        if "delay_reason" in data:
+            base += f" Delay reason: {data['delay_reason']}."
+        return base
 
-    # 4) Return normal (non-streaming) response
-    return TaskResponse.completed(
-        req.id,
-        result={
-            "flight_number": flight_no,
-            "message": final_text,
-            "raw_data": data
-        }
+
+class FlightInfoExecutor(AgentExecutor):
+    """Implements the A2A AgentExecutor interface."""
+
+    def __init__(self) -> None:
+        self.agent = FlightInfoAgent()
+
+    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
+        # For demo, read flight number from message text.
+        user_msg = context.request.params.message.parts[0].text  # type: ignore[attr-defined]
+
+        # Expect something like: "status 6E-101"
+        parts = user_msg.strip().split()
+        flight_number = parts[-1] if parts else "6E-101"
+
+        text = await self.agent.get_status(flight_number)
+        await event_queue.enqueue_event(new_agent_text_message(text))
+
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
+        # No long-running jobs in this simple demo.
+        return
+
+
+def build_server() -> A2AStarletteApplication:
+    skill = AgentSkill(
+        id="flight_status",
+        name="Flight status lookup",
+        description="Returns current status for a given Indigo flight number.",
+        tags=["flight", "indigo", "status"],
+        examples=["status 6E-101", "flight status 6E-202"],
     )
 
-def run():
-    server = A2AServer(agent_card, handle_task)
-    asyncio.run(server.serve(host="0.0.0.0", port=8000))
+    card = AgentCard(
+        name="IndiGo Flight Info Agent",
+        description="Demo A2A agent that returns Indigo flight status.",
+        url="http://localhost:8001/",
+        version="1.0.0",
+        default_input_modes=["text"],
+        default_output_modes=["text"],
+        capabilities=AgentCapabilities(streaming=False),
+        skills=[skill],
+    )
+
+    handler = DefaultRequestHandler(
+        agent_executor=FlightInfoExecutor(),
+        task_store=InMemoryTaskStore(),
+    )
+
+    return A2AStarletteApplication(
+        agent_card=card,
+        http_handler=handler,
+    )
+
 
 if __name__ == "__main__":
-    run()
+    server_app = build_server()
+    uvicorn.run(server_app.build(), host="0.0.0.0", port=8001)
