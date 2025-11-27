@@ -1,143 +1,89 @@
-import { useState } from "react";
+import asyncio
+import os
+from dotenv import load_dotenv
+from openai import AzureOpenAI
+import requests
 
-export default function App() {
-  const [supportFlight, setSupportFlight] = useState("");
-  const [directFlight, setDirectFlight] = useState("");
-  const [chatMessages, setChatMessages] = useState([]);
-  const [directResult, setDirectResult] = useState(null);
-  const [loadingSupport, setLoadingSupport] = useState(false);
-  const [loadingDirect, setLoadingDirect] = useState(false);
+from a2a_sdk.server import A2AServer, AgentCard, Skill
+from a2a_sdk.messages import TaskRequest, TaskResponse
 
-  const handleSupportRequest = async () => {
-    if (!supportFlight) return;
-    setLoadingSupport(true);
-    setChatMessages((prev) => [
-      ...prev,
-      `Requesting support for flight ${supportFlight}...`,
-    ]);
+load_dotenv()
 
-    try {
-      const res = await fetch("/api/support/tasks/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "support1",
-          method: "support_chat",
-          params: { flight_number: supportFlight },
-        }),
-      });
+client = AzureOpenAI(
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION")
+)
 
-      const data = await res.json();
-      const msg =
-        data.result?.message || "No response message received from agent.";
-      setChatMessages((prev) => [...prev, msg]);
-    } catch (err) {
-      setChatMessages((prev) => [
-        ...prev,
-        "Error contacting support agent.",
-      ]);
-    } finally {
-      setLoadingSupport(false);
-    }
-  };
+deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+FLIGHT_AGENT_URL = "http://localhost:8001"
 
-  const callFlightAgentDirect = async () => {
-    if (!directFlight) return;
-    setLoadingDirect(true);
-    setDirectResult(null);
+agent_card = AgentCard(
+    name="passenger_support_agent",
+    version="1.0.0",
+    description="Passenger support agent providing professional flight information responses.",
+    url="http://localhost:8000",
+    skills=[Skill(
+        id="support_chat",
+        name="Passenger Support Chat",
+        description="Provides professional support messaging."
+    )]
+)
 
-    try {
-      const res = await fetch("/api/flight/tasks/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "test1",
-          method: "get_flight_status",
-          params: { flight_number: directFlight },
-        }),
-      });
+async def handle_task(req: TaskRequest):
+    if req.method != "support_chat":
+        return TaskResponse.error(req.id, "Unknown method")
 
-      const data = await res.json();
-      setDirectResult(data.result);
-    } catch (err) {
-      setDirectResult({ error: "Error contacting flight agent." });
-    } finally {
-      setLoadingDirect(false);
-    }
-  };
+    flight_no = req.params.get("flight_number")
 
-  return (
-    <div style={{ display: "flex", height: "100vh", fontFamily: "sans-serif" }}>
-      {/* LEFT: Passenger Support */}
-      <div style={{ flex: 1, padding: 20, borderRight: "1px solid #ccc" }}>
-        <h2>Passenger Support</h2>
-        <div style={{ marginBottom: 10 }}>
-          <input
-            placeholder="Enter flight number (e.g., 6E-123)"
-            value={supportFlight}
-            onChange={(e) => setSupportFlight(e.target.value)}
-            style={{ marginRight: 10 }}
-          />
-          <button onClick={handleSupportRequest} disabled={loadingSupport}>
-            {loadingSupport ? "Processing..." : "Request Support"}
-          </button>
-        </div>
+    # 1) Call Flight Info Agent
+    flight_resp = requests.post(
+        FLIGHT_AGENT_URL + "/tasks/send",
+        json={
+            "jsonrpc": "2.0",
+            "id": "req_flight",
+            "method": "get_flight_status",
+            "params": {"flight_number": flight_no}
+        },
+        timeout=5
+    ).json()
 
-        <div
-          style={{
-            marginTop: 20,
-            padding: 10,
-            border: "1px solid #ddd",
-            height: "70vh",
-            overflowY: "auto",
-            background: "#fafafa",
-          }}
-        >
-          {chatMessages.length === 0 && (
-            <p style={{ color: "#777" }}>No messages yet.</p>
-          )}
-          {chatMessages.map((m, i) => (
-            <p key={i} style={{ marginBottom: 8 }}>
-              {m}
-            </p>
-          ))}
-        </div>
-      </div>
+    data = flight_resp.get("result", {})
 
-      {/* RIGHT: Flight Agent Direct Test */}
-      <div style={{ flex: 1, padding: 20 }}>
-        <h2>Flight Info Agent</h2>
-        <div style={{ marginBottom: 10 }}>
-          <input
-            placeholder="Enter flight number (e.g., 6E-123)"
-            value={directFlight}
-            onChange={(e) => setDirectFlight(e.target.value)}
-            style={{ marginRight: 10 }}
-          />
-          <button onClick={callFlightAgentDirect} disabled={loadingDirect}>
-            {loadingDirect ? "Loading..." : "Get Status"}
-          </button>
-        </div>
+    # 2) If not found, simple message
+    if "error" in data:
+        final_text = "The requested flight information is not available."
+    else:
+        # 3) Ask GPT-4o to write a short professional message
+        prompt = f"""
+You are an airline support assistant.
+Convert the following JSON flight data into a short, clear, professional message
+for the passenger. Do NOT add emojis. Keep it 1–2 sentences.
 
-        <div
-          style={{
-            marginTop: 20,
-            padding: 10,
-            border: "1px solid #ddd",
-            minHeight: "70vh",
-            background: "#fafafa",
-            overflowY: "auto",
-          }}
-        >
-          {directResult ? (
-            <pre>{JSON.stringify(directResult, null, 2)}</pre>
-          ) : (
-            <p style={{ color: "#777" }}>No data loaded.</p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+Flight data:
+{data}
+"""
+
+        completion = client.chat.completions.create(
+            model=deployment_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+        final_text = completion.choices[0].message.content.strip()
+
+    # 4) Return normal (non-streaming) response
+    return TaskResponse.completed(
+        req.id,
+        result={
+            "flight_number": flight_no,
+            "message": final_text,
+            "raw_data": data
+        }
+    )
+
+def run():
+    server = A2AServer(agent_card, handle_task)
+    asyncio.run(server.serve(host="0.0.0.0", port=8000))
+
+if __name__ == "__main__":
+    run()
