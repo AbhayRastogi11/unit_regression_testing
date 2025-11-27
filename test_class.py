@@ -1,98 +1,83 @@
-import asyncio
-import os
-from dotenv import load_dotenv
-from openai import AzureOpenAI
-import requests
+import { useState } from "react";
 
-from a2a_sdk.server import A2AServer, AgentCard, Skill
-from a2a_sdk.messages import (
-    TaskRequest, TaskResponse, TaskEvent,
-    new_agent_text_message
-)
+export default function App() {
+  const [flightNumber, setFlightNumber] = useState("");
+  const [chatMessages, setChatMessages] = useState([]);
+  const [directResult, setDirectResult] = useState(null);
 
-load_dotenv()
+  const handleSupportRequest = () => {
+    const evt = new EventSource("http://localhost:8000/tasks/send", {
+      method: "POST"
+    });
 
-client = AzureOpenAI(
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION")
-)
+    fetch("http://localhost:8000/tasks/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "support1",
+        method: "support_chat",
+        params: { flight_number: flightNumber }
+      }),
+    });
 
-deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
-FLIGHT_AGENT_URL = "http://localhost:8001"
+    evt.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.progress) {
+        setChatMessages((prev) => [...prev, `Progress: ${data.message}`]);
+      } else if (data.text) {
+        setChatMessages((prev) => [...prev, data.text]);
+      }
+    };
+  };
 
-agent_card = AgentCard(
-    name="passenger_support_agent",
-    version="1.0.0",
-    description="Passenger support agent providing flight information responses.",
-    url="http://localhost:8000",
-    skills=[Skill(
-        id="support_chat",
-        name="Passenger Support Chat",
-        description="Provides professional support messaging."
-    )]
-)
+  const callFlightAgentDirect = async () => {
+    const res = await fetch("http://localhost:8001/tasks/send", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "test1",
+        method: "get_flight_status",
+        params: { flight_number: flightNumber }
+      })
+    });
 
-async def stream_to_client(event_queue, req_id, flight_no):
-    await event_queue.put(TaskEvent.progress(
-        req_id, progress=10, message="Searching for flight information..."
-    ))
+    const out = await res.json();
+    setDirectResult(out.result);
+  };
 
-    info = requests.post(
-        FLIGHT_AGENT_URL + "/tasks/send",
-        json={
-            "jsonrpc": "2.0",
-            "id": "req_flight",
-            "method": "get_flight_status",
-            "params": {"flight_number": flight_no}
-        }
-    ).json()
+  return (
+    <div style={{ display: "flex", height: "100vh" }}>
+      {/* Left Side - Passenger Support */}
+      <div style={{ flex: 1, padding: 20, borderRight: "1px solid gray" }}>
+        <h2>Passenger Support</h2>
+        <input
+          placeholder="Enter flight number"
+          onChange={(e) => setFlightNumber(e.target.value)}
+        />
+        <button onClick={handleSupportRequest}>Request Support</button>
 
-    await event_queue.put(TaskEvent.progress(
-        req_id, progress=60,
-        message="Flight information received. Preparing response..."
-    ))
+        <div style={{ marginTop: 20 }}>
+          {chatMessages.map((m, i) => <p key={i}>{m}</p>)}
+        </div>
+      </div>
 
-    data = info.get("result", {})
-    if "error" in data:
-        final_text = "The requested flight information is not available."
-    else:
-        prompt = f"""
-        Convert the following JSON flight data into a short professional message:
-        {data}
-        """
+      {/* Right Side - Flight Agent Direct */}
+      <div style={{ flex: 1, padding: 20 }}>
+        <h2>Flight Info Agent</h2>
+        <input
+          placeholder="Enter flight number"
+          onChange={(e) => setFlightNumber(e.target.value)}
+        />
+        <button onClick={callFlightAgentDirect}>Get Status</button>
 
-        response_stream = client.chat.completions.create(
-            model=deployment_name,
-            messages=[{"role": "user", "content": prompt}],
-            stream=True
-        )
-
-        await event_queue.put(TaskEvent.progress(
-            req_id, progress=90,
-            message="Sending response..."
-        ))
-
-        async for chunk in response_stream:
-            token = chunk.choices[0].delta.content if chunk.choices[0].delta else ""
-            if token:
-                await event_queue.put(
-                    new_agent_text_message(req_id, token)
-                )
-
-    await event_queue.put(TaskEvent.completed(req_id))
-
-async def handle_task(req: TaskRequest):
-    flight_no = req.params.get("flight_number")
-
-    event_queue = asyncio.Queue()
-    asyncio.create_task(stream_to_client(event_queue, req.id, flight_no))
-
-    return TaskResponse.streaming(req.id, event_queue)
-
-def run():
-    server = A2AServer(agent_card, handle_task)
-    asyncio.run(server.serve(host="0.0.0.0", port=8000))
-
-if __name__ == "__main__":
-    run()
+        {directResult && (
+          <pre style={{ background: "#eee", marginTop: 20 }}>
+            {JSON.stringify(directResult, null, 2)}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
