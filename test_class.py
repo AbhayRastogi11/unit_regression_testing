@@ -1,75 +1,49 @@
-class TokenManager:
-    def __init__(self):
-        self.client_id = os.environ.get("CLIENT_ID")
-        self.client_secret = os.environ.get("CLIENT_SECRET")
-        self.tenant_id = os.environ.get("TENANT_ID")
-        self.scope = "https://graph.microsoft.com/.default"
-        self.token_refresh_interval = 30 * 60  # 30 minutes in seconds
-        self.last_token_refresh = None
-        self.token_refresh_thread = None
-        self.running = True
-        self._current_token = None  # ✅ in-memory token storage only
-       
-        if not self.client_id or not self.client_secret:
-            raise ValueError("CLIENT_ID and CLIENT_SECRET must be set in environment variables")
-   
-    def refresh_token(self):
-        """Refresh the OAuth2 access token"""
-        try:
-            logger.info("🔑 Refreshing OAuth2 access token...")
-           
-            access_token = get_microsoft_access_token(
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                tenant_id=self.tenant_id,
-                scope=self.scope
-            )
-           
-            if access_token:
-                # ✅ store only in memory (no env)
-                self._current_token = access_token
-                self.last_token_refresh = datetime.now()
-                logger.info(
-                    f"✅ Access token refreshed successfully at "
-                    f"{self.last_token_refresh.strftime('%Y-%m-%d %H:%M:%S')}"
-                )
-                logger.info(f"   Token length: {len(access_token)} characters")
-                return True
-            else:
-                logger.error("❌ Failed to refresh access token")
-                return False
-               
-        except Exception as e:
-            logger.error(f"❌ Error refreshing token: {e}")
-            return False
-   
-    def start_token_refresh_thread(self):
-        """Start the background token refresh thread"""
-        def token_refresh_worker():
-            # Initial token refresh
-            self.refresh_token()
-           
-            while self.running:
-                time.sleep(self.token_refresh_interval)
-                if self.running:  # Check again after sleep
-                    self.refresh_token()
-       
-        self.token_refresh_thread = threading.Thread(target=token_refresh_worker, daemon=True)
-        self.token_refresh_thread.start()
-        logger.info(f"🔄 Token refresh thread started (every {self.token_refresh_interval/60} minutes)")
-   
-    def get_current_token(self):
-        """Get the current access token (in-memory only)"""
-        print(1)
-        # ✅ if no token yet, try to refresh once
-        if not self._current_token:
-            refreshed = self.refresh_token()
-            if not refreshed:
-                return False
-        return self._current_token  
-   
-    def stop(self):
-        """Stop the token refresh thread"""
-        self.running = False
-        if self.token_refresh_thread and self.token_refresh_thread.is_alive():
-            logger.info("🛑 Stopping token refresh thread...")
+# flight_agent.py
+import asyncio
+from a2a_sdk.server import A2AServer, AgentCard, Skill
+from a2a_sdk.messages import TaskRequest, TaskResponse
+
+# 1. Define AgentCard metadata
+agent_card = AgentCard(
+    name="flight_info_agent",
+    version="1.0.0",
+    description="Provides flight status information for Indigo-style flights (demo)",
+    url="http://0.0.0.0:8000",  # will be served at root
+    skills=[
+        Skill(
+            id="get_flight_status",
+            name="Get Flight Status",
+            description="Return status info for a flight number (e.g. 6E-123)"
+        )
+    ]
+)
+
+# 2. Define handler for tasks
+async def handle_task(req: TaskRequest) -> TaskResponse:
+    method = req.method
+    if method == "get_flight_status":
+        params = req.params or {}
+        flight_no = params.get("flight_number")
+        # stub hard-coded data; replace with real DB/API in real use-case
+        demo_data = {
+            "6E-123": {"status": "On Time", "departure": "2025-11-28T14:30:00", "arrival": "2025-11-28T16:45:00"},
+            "6E-456": {"status": "Delayed", "departure": "2025-11-28T15:00:00", "arrival": "2025-11-28T17:15:00"},
+        }
+        info = demo_data.get(flight_no, {"status": "Unknown", "departure": None, "arrival": None})
+        result = {
+            "flight_number": flight_no,
+            "info": info
+        }
+        return TaskResponse.completed(req.id, result=result)
+    else:
+        return TaskResponse.error(req.id, code=-32601, message=f"Unknown method: {method}")
+
+# 3. Start server
+def main():
+    server = A2AServer(agent_card, handle_task)
+    # By default, server will serve agent card at /.well-known/agent-card.json
+    # and accept tasks at /tasks/send
+    asyncio.run(server.serve(host="0.0.0.0", port=8000))
+
+if __name__ == "__main__":
+    main()
