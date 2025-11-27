@@ -1,82 +1,142 @@
 import { useState } from "react";
 
 export default function App() {
-  const [flightNumber, setFlightNumber] = useState("");
+  const [supportFlight, setSupportFlight] = useState("");
+  const [directFlight, setDirectFlight] = useState("");
   const [chatMessages, setChatMessages] = useState([]);
   const [directResult, setDirectResult] = useState(null);
+  const [loadingSupport, setLoadingSupport] = useState(false);
+  const [loadingDirect, setLoadingDirect] = useState(false);
 
-  const handleSupportRequest = () => {
-    const evt = new EventSource("http://localhost:8000/tasks/send", {
-      method: "POST"
-    });
+  const handleSupportRequest = async () => {
+    if (!supportFlight) return;
+    setLoadingSupport(true);
+    setChatMessages((prev) => [
+      ...prev,
+      `Requesting support for flight ${supportFlight}...`,
+    ]);
 
-    fetch("http://localhost:8000/tasks/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "support1",
-        method: "support_chat",
-        params: { flight_number: flightNumber }
-      }),
-    });
+    try {
+      const res = await fetch("/api/support/tasks/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "support1",
+          method: "support_chat",
+          params: { flight_number: supportFlight },
+        }),
+      });
 
-    evt.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      if (data.progress) {
-        setChatMessages((prev) => [...prev, `Progress: ${data.message}`]);
-      } else if (data.text) {
-        setChatMessages((prev) => [...prev, data.text]);
-      }
-    };
+      const data = await res.json();
+      const msg =
+        data.result?.message || "No response message received from agent.";
+      setChatMessages((prev) => [...prev, msg]);
+    } catch (err) {
+      setChatMessages((prev) => [
+        ...prev,
+        "Error contacting support agent.",
+      ]);
+    } finally {
+      setLoadingSupport(false);
+    }
   };
 
   const callFlightAgentDirect = async () => {
-    const res = await fetch("http://localhost:8001/tasks/send", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "test1",
-        method: "get_flight_status",
-        params: { flight_number: flightNumber }
-      })
-    });
+    if (!directFlight) return;
+    setLoadingDirect(true);
+    setDirectResult(null);
 
-    const out = await res.json();
-    setDirectResult(out.result);
+    try {
+      const res = await fetch("/api/flight/tasks/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "test1",
+          method: "get_flight_status",
+          params: { flight_number: directFlight },
+        }),
+      });
+
+      const data = await res.json();
+      setDirectResult(data.result);
+    } catch (err) {
+      setDirectResult({ error: "Error contacting flight agent." });
+    } finally {
+      setLoadingDirect(false);
+    }
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh" }}>
-      {/* Left Side - Passenger Support */}
-      <div style={{ flex: 1, padding: 20, borderRight: "1px solid gray" }}>
+    <div style={{ display: "flex", height: "100vh", fontFamily: "sans-serif" }}>
+      {/* LEFT: Passenger Support */}
+      <div style={{ flex: 1, padding: 20, borderRight: "1px solid #ccc" }}>
         <h2>Passenger Support</h2>
-        <input
-          placeholder="Enter flight number"
-          onChange={(e) => setFlightNumber(e.target.value)}
-        />
-        <button onClick={handleSupportRequest}>Request Support</button>
+        <div style={{ marginBottom: 10 }}>
+          <input
+            placeholder="Enter flight number (e.g., 6E-123)"
+            value={supportFlight}
+            onChange={(e) => setSupportFlight(e.target.value)}
+            style={{ marginRight: 10 }}
+          />
+          <button onClick={handleSupportRequest} disabled={loadingSupport}>
+            {loadingSupport ? "Processing..." : "Request Support"}
+          </button>
+        </div>
 
-        <div style={{ marginTop: 20 }}>
-          {chatMessages.map((m, i) => <p key={i}>{m}</p>)}
+        <div
+          style={{
+            marginTop: 20,
+            padding: 10,
+            border: "1px solid #ddd",
+            height: "70vh",
+            overflowY: "auto",
+            background: "#fafafa",
+          }}
+        >
+          {chatMessages.length === 0 && (
+            <p style={{ color: "#777" }}>No messages yet.</p>
+          )}
+          {chatMessages.map((m, i) => (
+            <p key={i} style={{ marginBottom: 8 }}>
+              {m}
+            </p>
+          ))}
         </div>
       </div>
 
-      {/* Right Side - Flight Agent Direct */}
+      {/* RIGHT: Flight Agent Direct Test */}
       <div style={{ flex: 1, padding: 20 }}>
         <h2>Flight Info Agent</h2>
-        <input
-          placeholder="Enter flight number"
-          onChange={(e) => setFlightNumber(e.target.value)}
-        />
-        <button onClick={callFlightAgentDirect}>Get Status</button>
+        <div style={{ marginBottom: 10 }}>
+          <input
+            placeholder="Enter flight number (e.g., 6E-123)"
+            value={directFlight}
+            onChange={(e) => setDirectFlight(e.target.value)}
+            style={{ marginRight: 10 }}
+          />
+          <button onClick={callFlightAgentDirect} disabled={loadingDirect}>
+            {loadingDirect ? "Loading..." : "Get Status"}
+          </button>
+        </div>
 
-        {directResult && (
-          <pre style={{ background: "#eee", marginTop: 20 }}>
-            {JSON.stringify(directResult, null, 2)}
-          </pre>
-        )}
+        <div
+          style={{
+            marginTop: 20,
+            padding: 10,
+            border: "1px solid #ddd",
+            minHeight: "70vh",
+            background: "#fafafa",
+            overflowY: "auto",
+          }}
+        >
+          {directResult ? (
+            <pre>{JSON.stringify(directResult, null, 2)}</pre>
+          ) : (
+            <p style={{ color: "#777" }}>No data loaded.</p>
+          )}
+        </div>
       </div>
     </div>
   );
